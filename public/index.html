@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ToDo List</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f5f5f5;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding-top: 40px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .dark-theme {
+            background-color: #222;
+            color: #eee;
+        }
+
+        .container {
+            background: #fff;
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 600px;
+            transition: background-color 0.3s;
+            overflow-wrap: break-word;
+            position: relative;
+        }
+
+        .dark-theme .container {
+            background-color: #333;
+        }
+
+        h1 {
+            margin-top: 0;
+            text-align: center;
+        }
+
+        #taskInput {
+            width: calc(100% - 220px);
+            padding: 8px;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+
+        #addButton {
+            padding: 8px 16px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #toggleTheme {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: transparent;
+            font-size: 20px;
+            border: none;
+            cursor: pointer;
+            color: inherit;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        li {
+            background-color: #444;
+            color: #fff;
+            padding: 12px 16px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            cursor: grab;
+            word-break: break-word;
+        }
+
+        li.dragging {
+            opacity: 0.5;
+            background-color: #666;
+        }
+
+        li > div:first-child {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            word-break: break-word;
+        }
+
+        .completed {
+            text-decoration: line-through;
+            color: #aaa;
+        }
+
+        button {
+            background-color: #555;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        button:hover {
+            background-color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button id="toggleTheme" title="Змінити тему">🌓</button>
+        <h1>ToDo List</h1>
+        <input type="text" id="taskInput" placeholder="Введіть завдання..." />
+        <button id="addButton">Додати</button>
+        <ul id="taskList"></ul>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const taskInput = document.getElementById('taskInput');
+            const addButton = document.getElementById('addButton');
+            const taskList = document.getElementById('taskList');
+            const toggleTheme = document.getElementById('toggleTheme');
+
+            let tasks = [];
+            let draggedIndex = null;
+
+            if (localStorage.getItem('theme') === 'dark') {
+                document.body.classList.add('dark-theme');
+            }
+
+            toggleTheme.addEventListener('click', () => {
+                document.body.classList.toggle('dark-theme');
+                const theme = document.body.classList.contains('dark-theme') ? 'dark' : 'light';
+                localStorage.setItem('theme', theme);
+            });
+
+            async function loadTasks() {
+                try {
+                    const res = await fetch('/tasks');
+                    tasks = await res.json();
+                    renderTasks();
+                } catch (err) {
+                    console.error('Failed to load tasks', err);
+                }
+            }
+
+            async function saveTasks() {
+                try {
+                    await fetch('/tasks', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(tasks),
+                    });
+                } catch (err) {
+                    console.error('Failed to save tasks', err);
+                }
+            }
+
+            function renderTasks() {
+                taskList.innerHTML = '';
+                tasks.forEach((task, index) => {
+                    const listItem = document.createElement('li');
+                    listItem.setAttribute('draggable', 'true');
+
+                    const contentWrapper = document.createElement('div');
+
+                    const taskText = document.createElement('div');
+                    taskText.textContent = task.name;
+                    if (task.completed) taskText.classList.add('completed');
+
+                    const timestamp = document.createElement('div');
+                    const date = new Date(task.createdAt);
+                    timestamp.textContent = `Додано: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+                    timestamp.style.fontSize = '12px';
+                    timestamp.style.color = '#ccc';
+
+                    contentWrapper.appendChild(taskText);
+                    contentWrapper.appendChild(timestamp);
+                    listItem.appendChild(contentWrapper);
+
+                    const editButton = document.createElement('button');
+                    editButton.innerHTML = '✏️';
+                    editButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const newText = prompt('Редагувати завдання:', task.name);
+                        if (newText !== null) {
+                            task.name = newText;
+                            saveTasks();
+                            renderTasks();
+                        }
+                    });
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.innerHTML = '🗑️';
+                    deleteButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        deleteTask(index);
+                    });
+
+                    listItem.appendChild(editButton);
+                    listItem.appendChild(deleteButton);
+
+                    listItem.addEventListener('click', () => {
+                        toggleTaskCompletion(index);
+                    });
+
+                    listItem.addEventListener('dragstart', () => {
+                        draggedIndex = index;
+                        listItem.classList.add('dragging');
+                    });
+
+                    listItem.addEventListener('dragend', () => {
+                        listItem.classList.remove('dragging');
+                    });
+
+                    listItem.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                    });
+
+                    listItem.addEventListener('drop', () => {
+                        if (draggedIndex === null || draggedIndex === index) return;
+                        const draggedItem = tasks[draggedIndex];
+                        tasks.splice(draggedIndex, 1);
+                        tasks.splice(index, 0, draggedItem);
+                        draggedIndex = null;
+                        saveTasks();
+                        renderTasks();
+                    });
+
+                    taskList.appendChild(listItem);
+                });
+            }
+
+            async function addTaskFromInput() {
+                const taskName = taskInput.value.trim();
+                if (taskName !== '') {
+                    tasks.push({
+                        name: taskName,
+                        completed: false,
+                        createdAt: new Date().toISOString(),
+                    });
+                    await saveTasks();
+                    renderTasks();
+                    taskInput.value = '';
+                }
+            }
+
+            addButton.addEventListener('click', addTaskFromInput);
+
+            taskInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    addTaskFromInput();
+                }
+            });
+
+            async function toggleTaskCompletion(index) {
+                tasks[index].completed = !tasks[index].completed;
+                await saveTasks();
+                renderTasks();
+            }
+
+            async function deleteTask(index) {
+                tasks.splice(index, 1);
+                await saveTasks();
+                renderTasks();
+            }
+
+            loadTasks();
+        });
+    </script>
+</body>
+</html>
